@@ -17,6 +17,8 @@ class BudgetApp:
         self.income_listbox = tk.Listbox(root)
         self.income_listbox.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
 
+        tk.Button(root, text="Удалить выбранное", command=self.delete_income).grid(row=1, column=3, padx=5, pady=5)
+
         tk.Label(root, text="Расходы").grid(row=2, column=0, padx=10, pady=5)
         self.expense_entry = tk.Entry(root)
         self.expense_entry.grid(row=2, column=1, padx=10)
@@ -25,6 +27,8 @@ class BudgetApp:
         self.expense_listbox = tk.Listbox(root)
         self.expense_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
         
+        tk.Button(root, text="Удалить выбранное", command=self.delete_expense).grid(row=3, column=3, padx=5, pady=5)
+
         tk.Button(root, text="Рассчитать", command=self.calculate).grid(row=4, column=0, columnspan=3, pady=10)
         self.result_label = tk.Label(root, text="")
         self.result_label.grid(row=5, column=0, columnspan=3, pady=5)
@@ -37,7 +41,7 @@ class BudgetApp:
             self.income_entry.delete(0, tk.END)
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректное число для дохода!")
-
+            
     def add_expense(self):
         try:
             value = float(self.expense_entry.get())
@@ -46,6 +50,24 @@ class BudgetApp:
             self.expense_entry.delete(0, tk.END)
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректное число для расхода!")
+    
+    def delete_income(self):
+        selected = self.income_listbox.curselection()
+        if not selected:
+            messagebox.showwarning("Удаление", "Выберите запись для удаления!")
+            return
+        for idx in reversed(selected):
+            self.income_listbox.delete(idx)
+            del self.incomes[idx]
+
+    def delete_expense(self):
+        selected = self.expense_listbox.curselection()
+        if not selected:
+            messagebox.showwarning("Удаление", "Выберите запись для удаления!")
+            return
+        for idx in reversed(selected):
+            self.expense_listbox.delete(idx)
+            del self.expenses[idx]
 
     def calculate(self):
         total_income = sum(self.incomes)
