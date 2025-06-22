@@ -296,6 +296,22 @@ class BudgetApp:
         except Exception as e:
             messagebox.showerror("Ошибка экспорта", str(e))
 
+def export_data(self):
+        data = {
+            "incomes": [list(item) for item in self.incomes],
+            "expenses": [list(item) for item in self.expenses],
+            "limits": self.limits
+        }
+        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")], title="Сохранить как")
+        if not file_path:
+            return
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            messagebox.showinfo("Экспорт завершён", f"Данные успешно сохранены в: {file_path}")
+        except Exception as e:
+            messagebox.showerror("Ошибка экспорта", str(e))
+
     def import_data(self):
         file_path = filedialog.askopenfilename(filetypes=[("JSON", "*.json")], title="Открыть данные")
         if not file_path:
@@ -303,19 +319,51 @@ class BudgetApp:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self.incomes = [tuple(item) for item in data.get("incomes", [])]
-            self.expenses = [tuple(item) for item in data.get("expenses", [])]
-            self.limits = {cat: float(val) for cat, val in data.get("limits", {}).items()}
-
+    
+            self.incomes = []
+            for item in data.get("incomes", []):
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    value, category = item
+                    try:
+                        value = float(value)
+                        category = str(category)
+                        self.incomes.append((value, category))
+                    except (ValueError, TypeError):
+                        continue 
+                    
+            self.expenses = []
+            for item in data.get("expenses", []):
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    value, category = item
+                    try:
+                        value = float(value)
+                        category = str(category)
+                        self.expenses.append((value, category))
+                    except (ValueError, TypeError):
+                        continue
+                    
+            self.limits = {}
+            for cat, val in data.get("limits", {}).items():
+                try:
+                    self.limits[str(cat)] = float(val)
+                except (ValueError, TypeError):
+                    continue
+                
             self.income_listbox.delete(0, tk.END)
             for value, category in self.incomes:
-                self.income_listbox.insert(tk.END, f"{float(value):.2f} руб. ({category})")
+                self.income_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
+    
             self.expense_listbox.delete(0, tk.END)
             for value, category in self.expenses:
-                self.expense_listbox.insert(tk.END, f"{float(value):.2f} руб. ({category})")
+                self.expense_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
+    
             messagebox.showinfo("Импорт завершён", f"Данные успешно загружены из: {file_path}")
+    
+            warnings = self.check_all_limits(return_messages=True)
+            if warnings:
+                messagebox.showinfo("Лимиты", "\n".join(warnings))
         except Exception as e:
-            messagebox.showerror("Ошибка импорта", str(e))
+            messagebox.showerror("Ошибка импорта", f"Ошибка при импорте данных: {e}")
 
 
 if __name__ == "__main__":
