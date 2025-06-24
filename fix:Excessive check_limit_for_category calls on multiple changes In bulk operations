@@ -38,7 +38,6 @@ class EditDialog(tk.Toplevel):
         self.destroy()
 
 class LimitDialog(tk.Toplevel):
-    """Окно для установки лимитов по категориям расходов"""
     def __init__(self, master, expense_types, limits, callback):
         super().__init__(master)
         self.title("Лимиты расходов")
@@ -146,6 +145,7 @@ class BudgetApp:
             self.expense_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
             self.expense_entry.delete(0, tk.END)
             self.check_limit_for_category(category)
+            # Одиночное добавление вызывает обычное окно
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректное число для расхода!")
 
@@ -170,13 +170,20 @@ class BudgetApp:
         idx = selected[0]
         value, category = self.expenses[idx]
         old_category = category
+
         def callback(new_value, new_category):
             self.expenses[idx] = (new_value, new_category)
             self.expense_listbox.delete(idx)
             self.expense_listbox.insert(idx, f"{new_value:.2f} руб. ({new_category})")
-            self.check_limit_for_category(new_category)
-            if new_category != old_category:
-                self.check_limit_for_category(old_category)
+            # Выводим итоговое сообщение по лимитам только один раз
+            warnings = []
+            for cat in {new_category, old_category}:
+                msg = self.check_limit_for_category(cat, return_message=True)
+                if msg:
+                    warnings.append(msg)
+            if warnings:
+                messagebox.showinfo("Лимиты", "\n".join(warnings))
+
         EditDialog(self.root, value, category, self.expense_types, callback)
 
     def delete_income(self):
@@ -193,11 +200,19 @@ class BudgetApp:
         if not selected:
             messagebox.showwarning("Удаление", "Выберите запись для удаления!")
             return
+        affected_cats = set()
+        for idx in selected:
+            affected_cats.add(self.expenses[idx][1])
         for idx in reversed(selected):
-            cat = self.expenses[idx][1]
             self.expense_listbox.delete(idx)
             del self.expenses[idx]
-            self.check_limit_for_category(cat)
+        warnings = []
+        for cat in affected_cats:
+            msg = self.check_limit_for_category(cat, return_message=True)
+            if msg:
+                warnings.append(msg)
+        if warnings:
+            messagebox.showinfo("Лимиты", "\n".join(warnings))
 
     def calculate(self):
         total_income = sum(income[0] for income in self.incomes)
@@ -241,7 +256,6 @@ class BudgetApp:
         messagebox.showinfo("Лимиты", "Лимиты расходов обновлены.")
 
     def check_all_limits(self, return_messages=False):
-        """Проверяет все лимиты расходов, оповещает; возвращает сообщения если надо"""
         cat_sums = {}
         messages = []
         for value, cat in self.expenses:
@@ -263,40 +277,27 @@ class BudgetApp:
                     messagebox.showinfo("Лимит бюджета", msg)
         return messages
 
-    def check_limit_for_category(self, cat):
-        """Проверяет лимит только для одной категории и оповещает"""
+    def check_limit_for_category(self, cat, return_message=False):
+        # Проверяет лимит только для одной категории. То есть если return_message=True — возвращает строку, иначе messagebox.
         if cat not in self.limits:
-            return
+            return None
         spent = sum(v for v, c in self.expenses if c == cat)
         limit = self.limits[cat]
         if spent >= limit:
-            messagebox.showwarning(
-                "Лимит превышен",
-                f"Переполнение лимита по '{cat}': потрачено {spent:.2f} из {limit:.2f} руб.!"
-            )
+            msg = f"Переполнение лимита по '{cat}': потрачено {spent:.2f} из {limit:.2f} руб.!"
+            if return_message:
+                return "ВНИМАНИЕ. " + msg
+            else:
+                messagebox.showwarning("Лимит превышен", msg)
         elif spent >= 0.9 * limit:
-            messagebox.showinfo(
-                "Лимит бюджета",
-                f"Внимание: почти израсходован лимит по '{cat}' ({spent:.2f} из {limit:.2f} руб.)"
-            )
+            msg = f"Внимание: почти израсходован лимит по '{cat}' ({spent:.2f} из {limit:.2f} руб.)"
+            if return_message:
+                return msg
+            else:
+                messagebox.showinfo("Лимит бюджета", msg)
+        return None
 
     def export_data(self):
-        data = {
-            "incomes": [list(item) for item in self.incomes],
-            "expenses": [list(item) for item in self.expenses],
-            "limits": self.limits
-        }
-        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")], title="Сохранить как")
-        if not file_path:
-            return
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("Экспорт завершён", f"Данные успешно сохранены в: {file_path}")
-        except Exception as e:
-            messagebox.showerror("Ошибка экспорта", str(e))
-
-def export_data(self):
         data = {
             "incomes": [list(item) for item in self.incomes],
             "expenses": [list(item) for item in self.expenses],
@@ -319,7 +320,7 @@ def export_data(self):
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-    
+
             self.incomes = []
             for item in data.get("incomes", []):
                 if isinstance(item, (list, tuple)) and len(item) == 2:
@@ -330,7 +331,7 @@ def export_data(self):
                         self.incomes.append((value, category))
                     except (ValueError, TypeError):
                         continue 
-                    
+
             self.expenses = []
             for item in data.get("expenses", []):
                 if isinstance(item, (list, tuple)) and len(item) == 2:
@@ -340,31 +341,30 @@ def export_data(self):
                         category = str(category)
                         self.expenses.append((value, category))
                     except (ValueError, TypeError):
-                        continue
-                    
+                        continue 
+
             self.limits = {}
             for cat, val in data.get("limits", {}).items():
                 try:
                     self.limits[str(cat)] = float(val)
                 except (ValueError, TypeError):
-                    continue
-                
+                    continue 
+
             self.income_listbox.delete(0, tk.END)
             for value, category in self.incomes:
                 self.income_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
-    
+
             self.expense_listbox.delete(0, tk.END)
             for value, category in self.expenses:
                 self.expense_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
-    
+
             messagebox.showinfo("Импорт завершён", f"Данные успешно загружены из: {file_path}")
-    
+
             warnings = self.check_all_limits(return_messages=True)
             if warnings:
                 messagebox.showinfo("Лимиты", "\n".join(warnings))
         except Exception as e:
             messagebox.showerror("Ошибка импорта", f"Ошибка при импорте данных: {e}")
-
 
 if __name__ == "__main__":
     root = tk.Tk()
