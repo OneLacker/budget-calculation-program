@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog, simpledialog
 import json
+from datetime import datetime
 
 class EditDialog(tk.Toplevel):
     def __init__(self, master, value, category, categories, callback):
@@ -74,6 +75,145 @@ class LimitDialog(tk.Toplevel):
         self.callback(new_limits)
         self.destroy()
 
+class SavingsGoalDialog(tk.Toplevel):
+    def __init__(self, master, goals, callback):
+        super().__init__(master)
+        self.title("Копилки и цели накопления")
+        self.resizable(False, False)
+        self.callback = callback
+        self.goals = goals.copy()  # словарь: {название: {target, deadline_str, saved}}
+
+        self.tree = ttk.Treeview(self, columns=("target", "deadline", "saved"), show="headings", height=8)
+        self.tree.heading("target", text="Цель (руб.)")
+        self.tree.heading("deadline", text="Срок (ДД.ММ.ГГГГ)")
+        self.tree.heading("saved", text="Накоплено (руб.)")
+        self.tree.grid(row=0, column=0, columnspan=4, padx=5, pady=5, sticky="nsew")
+
+        self.update_tree()
+
+        tk.Button(self, text="Добавить цель", command=self.add_goal).grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        tk.Button(self, text="Редактировать цель", command=self.edit_goal).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        tk.Button(self, text="Удалить цель", command=self.delete_goal).grid(row=1, column=2, padx=5, pady=5, sticky="ew")
+        tk.Button(self, text="Закрыть", command=self.close).grid(row=1, column=3, padx=5, pady=5, sticky="ew")
+
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.close)
+
+    def update_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        for name, info in self.goals.items():
+            self.tree.insert("", tk.END, iid=name, values=(
+                f"{info['target']:.2f}",
+                info['deadline_str'],
+                f"{info['saved']:.2f}"
+            ))
+
+    def add_goal(self):
+        dlg = GoalEditDialog(self, "", 0.0, "", 0.0)
+        self.wait_window(dlg)
+        if dlg.result:
+            name, target, deadline_str, saved = dlg.result
+            if name in self.goals:
+                messagebox.showerror("Ошибка", "Копилка с таким именем уже существует!")
+                return
+            self.goals[name] = {"target": target, "deadline_str": deadline_str, "saved": saved}
+            self.update_tree()
+
+    def edit_goal(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Редактирование", "Выберите цель для редактирования!")
+            return
+        name = selected[0]
+        info = self.goals[name]
+        dlg = GoalEditDialog(self, name, info["target"], info["deadline_str"], info["saved"])
+        self.wait_window(dlg)
+        if dlg.result:
+            new_name, target, deadline_str, saved = dlg.result
+            if new_name != name and new_name in self.goals:
+                messagebox.showerror("Ошибка", "Копилка с таким именем уже существует!")
+                return
+            del self.goals[name]
+            self.goals[new_name] = {"target": target, "deadline_str": deadline_str, "saved": saved}
+            self.update_tree()
+
+    def delete_goal(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Удаление", "Выберите цель для удаления!")
+            return
+        for name in selected:
+            del self.goals[name]
+        self.update_tree()
+
+    def close(self):
+        self.callback(self.goals)
+        self.destroy()
+
+class GoalEditDialog(tk.Toplevel):
+    def __init__(self, master, name, target, deadline_str, saved):
+        super().__init__(master)
+        self.title("Редактирование цели")
+        self.resizable(False, False)
+        self.result = None
+
+        tk.Label(self, text="Название цели:").grid(row=0, column=0, padx=8, pady=8, sticky="w")
+        self.name_entry = tk.Entry(self)
+        self.name_entry.grid(row=0, column=1, padx=8, pady=8)
+        self.name_entry.insert(0, name)
+
+        tk.Label(self, text="Сумма для накопления (руб.):").grid(row=1, column=0, padx=8, pady=8, sticky="w")
+        self.target_entry = tk.Entry(self)
+        self.target_entry.grid(row=1, column=1, padx=8, pady=8)
+        self.target_entry.insert(0, f"{target:.2f}" if target else "")
+
+        tk.Label(self, text="Крайний срок (ДД.ММ.ГГГГ):").grid(row=2, column=0, padx=8, pady=8, sticky="w")
+        self.deadline_entry = tk.Entry(self)
+        self.deadline_entry.grid(row=2, column=1, padx=8, pady=8)
+        self.deadline_entry.insert(0, deadline_str)
+
+        tk.Label(self, text="Накоплено (руб.):").grid(row=3, column=0, padx=8, pady=8, sticky="w")
+        self.saved_entry = tk.Entry(self)
+        self.saved_entry.grid(row=3, column=1, padx=8, pady=8)
+        self.saved_entry.insert(0, f"{saved:.2f}" if saved else "0.00")
+
+        tk.Button(self, text="Сохранить", command=self.save).grid(row=4, column=0, columnspan=2, pady=12, sticky="ew")
+
+        self.name_entry.focus()
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def save(self):
+        name = self.name_entry.get().strip()
+        if not name:
+            messagebox.showerror("Ошибка", "Введите название цели!")
+            return
+        try:
+            target = float(self.target_entry.get())
+            if target <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректную сумму для накопления (больше 0)!")
+            return
+        deadline_str = self.deadline_entry.get().strip()
+        try:
+            datetime.strptime(deadline_str, "%d.%m.%Y")
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректную дату в формате ДД.ММ.ГГГГ!")
+            return
+        try:
+            saved = float(self.saved_entry.get())
+            if saved < 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Ошибка", "Введите корректную сумму накопления (0 или больше)!")
+            return
+        if saved > target:
+            messagebox.showerror("Ошибка", "Накоплено не может быть больше цели!")
+            return
+        self.result = (name, target, deadline_str, saved)
+        self.destroy()
+
 class BudgetApp:
     def __init__(self, root):
         self.root = root
@@ -85,6 +225,9 @@ class BudgetApp:
         self.income_types = ["Зарплата", "Подарки", "Дополнительный доход", "Другое"]
         self.expense_types = ["Транспорт", "Супермаркет", "Развлечения", "Кафе", "Коммуналка", "Другое"]
         self.limits = {}
+
+        # Копилки и цели накопления — словарь {название: {target, deadline_str, saved}}
+        self.savings_goals = {}
 
         tk.Label(root, text="Доходы").grid(row=0, column=0, padx=8, pady=5, sticky="w")
         self.income_entry = tk.Entry(root)
@@ -124,8 +267,12 @@ class BudgetApp:
         self.limits_btn = tk.Button(root, text="Установить лимиты", command=self.set_limits)
         self.limits_btn.grid(row=8, column=0, padx=10, pady=15, sticky="ew")
 
+        self.savings_btn = tk.Button(root, text="Копилки и цели", command=self.set_savings_goals)
+        self.savings_btn.grid(row=8, column=3, padx=10, pady=15, sticky="ew")
+
         root.grid_columnconfigure(1, weight=1)
         root.grid_columnconfigure(2, weight=1)
+        root.grid_columnconfigure(3, weight=1)
 
     def add_income(self):
         try:
@@ -145,7 +292,6 @@ class BudgetApp:
             self.expense_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
             self.expense_entry.delete(0, tk.END)
             self.check_limit_for_category(category)
-            # Одиночное добавление вызывает обычное окно
         except ValueError:
             messagebox.showerror("Ошибка", "Введите корректное число для расхода!")
 
@@ -175,7 +321,6 @@ class BudgetApp:
             self.expenses[idx] = (new_value, new_category)
             self.expense_listbox.delete(idx)
             self.expense_listbox.insert(idx, f"{new_value:.2f} руб. ({new_category})")
-            # Выводим итоговое сообщение по лимитам только один раз
             warnings = []
             for cat in {new_category, old_category}:
                 msg = self.check_limit_for_category(cat, return_message=True)
@@ -240,6 +385,32 @@ class BudgetApp:
             message += f"  {cat}: {amount:.2f} руб.\n"
         if warnings:
             message += "\n".join(warnings) + "\n"
+
+        if self.savings_goals:
+            message += "\nЦели накопления:\n"
+            now = datetime.now()
+            for name, info in self.savings_goals.items():
+                target = info['target']
+                saved = info['saved']
+                try:
+                    deadline = datetime.strptime(info['deadline_str'], "%d.%m.%Y")
+                    days_left = (deadline - now).days
+                except Exception:
+                    days_left = "неизвестно"
+                progress_percent = (saved / target) * 100 if target > 0 else 0
+                status = "Выполнено!" if saved >= target else "В процессе"
+                time_warning = ""
+                if isinstance(days_left, int):
+                    if days_left < 0:
+                        time_warning = "Просрочено!"
+                    elif 0 <= days_left <= 7:
+                        time_warning = "Срок близко!"
+
+                message += f"  {name}: {saved:.2f} / {target:.2f} руб., срок: {info['deadline_str']} ({days_left} дн.) {status}"
+                if time_warning:
+                    message += f" - {time_warning}"
+                message += f" ({progress_percent:.1f}%)\n"
+
         if balance > 0:
             message += "Поздравляем! У вас положительный баланс."
         elif balance < 0:
@@ -278,7 +449,6 @@ class BudgetApp:
         return messages
 
     def check_limit_for_category(self, cat, return_message=False):
-        # Проверяет лимит только для одной категории. То есть если return_message=True — возвращает строку, иначе messagebox.
         if cat not in self.limits:
             return None
         spent = sum(v for v, c in self.expenses if c == cat)
@@ -301,7 +471,8 @@ class BudgetApp:
         data = {
             "incomes": [list(item) for item in self.incomes],
             "expenses": [list(item) for item in self.expenses],
-            "limits": self.limits
+            "limits": self.limits,
+            "savings_goals": self.savings_goals,
         }
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")], title="Сохранить как")
         if not file_path:
@@ -350,6 +521,16 @@ class BudgetApp:
                 except (ValueError, TypeError):
                     continue 
 
+            self.savings_goals = {}
+            for name, info in data.get("savings_goals", {}).items():
+                try:
+                    target = float(info["target"])
+                    saved = float(info.get("saved", 0))
+                    deadline_str = str(info["deadline_str"])
+                    self.savings_goals[str(name)] = {"target": target, "deadline_str": deadline_str, "saved": saved}
+                except (ValueError, KeyError, TypeError):
+                    continue
+
             self.income_listbox.delete(0, tk.END)
             for value, category in self.incomes:
                 self.income_listbox.insert(tk.END, f"{value:.2f} руб. ({category})")
@@ -365,6 +546,13 @@ class BudgetApp:
                 messagebox.showinfo("Лимиты", "\n".join(warnings))
         except Exception as e:
             messagebox.showerror("Ошибка импорта", f"Ошибка при импорте данных: {e}")
+
+    def set_savings_goals(self):
+        SavingsGoalDialog(self.root, self.savings_goals, self.save_savings_goals)
+
+    def save_savings_goals(self, goals_dict):
+        self.savings_goals = goals_dict
+        messagebox.showinfo("Копилки и цели", "Данные копилок и целей обновлены.")
 
 if __name__ == "__main__":
     root = tk.Tk()
